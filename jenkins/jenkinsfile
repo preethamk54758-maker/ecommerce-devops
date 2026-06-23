@@ -1,0 +1,82 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_USER = "yourdockerhubusername"
+        IMAGE_TAG      = "${env.BUILD_NUMBER}"
+        CLUSTER_NAME   = "ecommerce-cluster"
+        AWS_REGION     = "ap-south-1"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/preethamk54758-maker/ecommerce-devops.git'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                dir('services/user-service') {
+                    sh 'npm install && npm test'
+                }
+            }
+        }
+
+        stage('Build Images') {
+            steps {
+                script {
+                    ['user-service','product-service',
+                     'order-service','payment-service'].each { svc ->
+                        sh "docker build -t ${DOCKERHUB_USER}/${svc}:${IMAGE_TAG} ./services/${svc}"
+                    }
+                }
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin"
+                    script {
+                        ['user-service','product-service',
+                         'order-service','payment-service'].each { svc ->
+                            sh "docker push ${DOCKERHUB_USER}/${svc}:${IMAGE_TAG}"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: 'aws-creds'
+                ]]) {
+                    sh """
+                        aws eks update-kubeconfig \
+                          --region ${AWS_REGION} --name ${CLUSTER_NAME}
+                        kubectl set image deployment/user-service \
+                          user-service=${DOCKERHUB_USER}/user-service:${IMAGE_TAG} \
+                          -n ecommerce
+                        kubectl rollout status deployment/user-service -n ecommerce
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success { echo "✅ Build #${IMAGE_TAG} deployed successfully!" }
+        failure {
+            sh 'kubectl rollout undo deployment/user-service -n ecommerce || true'
+            echo "❌ Failed — rolled back!"
+        }
+    }
+}

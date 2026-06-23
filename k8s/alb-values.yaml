@@ -1,0 +1,6 @@
+clusterName: ecommerce-cluster
+serviceAccount:
+  create: false
+  name: aws-load-balancer-controller
+region: ap-south-1
+vpcId: vpc-071c2303209670b25
