@@ -12,7 +12,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 git branch: 'main',
-                    url: 'https://github.com/yourusername/ecommerce-devops.git'
+                    url: 'https://github.com/preethamk54758-maker/ecommerce-devops.git'
             }
         }
 
